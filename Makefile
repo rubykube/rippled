@@ -1,7 +1,7 @@
 VERSION := $(shell cat VERSION)
-IMAGE   := gcr.io/hc-public/rippled:$(VERSION)
+IMAGE   := rubykube/rippled:$(VERSION)
 
-.PHONY: default build push run
+.PHONY: default build push run ci deploy
 
 default: build run
 
@@ -10,8 +10,19 @@ build:
 	@docker build -t $(IMAGE) .
 
 push: build
-	gcloud docker -- push $(IMAGE)
+	docker push $(IMAGE)
 
 run:
 	@echo '> Starting "rippled" container...'
+	@docker run -d --rm $(IMAGE)
+
+debug:
+	@echo '> Starting "rippled" container'
 	@docker run -it --rm $(IMAGE) bash
+
+ci:
+	@fly -t ci set-pipeline -p rippled -c config/pipelines/review.yml -n
+	@fly -t ci unpause-pipeline -p rippled
+
+deploy: push
+	@helm install ./config/charts/rippled --set "image.tag=$(VERSION)"

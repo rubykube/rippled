@@ -1,0 +1,4 @@
+apiVersion: v1
+description: A Rippled chart
+name: rippled
+version: 0.80.0

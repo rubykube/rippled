@@ -1,0 +1,104 @@
+# Check `docs/pipeline.md` to get info about this file
+resource_types:
+  - name: pull-request
+    type: docker-image
+    source:
+      repository: jtarchie/pr
+
+resources:
+  - name: rippled-repository
+    type: git
+    source:
+      uri: https://github.com/rubykube/rippled.git
+      branch: master
+      private_key: ((git_private_key))
+
+  - name: pull-requests
+    type: pull-request
+    source:
+      access_token: ((github_token))
+      base: master
+      private_key: ((git_private_key))
+      repo: rubykube/rippled
+      uri: https://github.com/rubykube/rippled.git
+
+  - name: rippled-image
+    type: docker-image
+    source:
+      repository: rubykube/rippled
+      username: _json_key
+      password: ((gcr_password))
+
+jobs:
+  - name: pr-build
+    plan:
+      - get: pull-requests
+        trigger: true
+      - task: tag
+        file: pull-requests/config/pipelines/tasks/create-pull-requests-tag.yml
+      - put: rippled-image
+        params:
+          build: pull-requests
+          tag: tag/name
+
+  - name: pr-unit
+    serial: true
+    plan:
+      - get: pull-requests
+        passed: [pr-build]
+        trigger: true
+      - get: rippled-image
+        passed: [pr-build]
+        trigger: true
+      - put: pull-requests
+        params:
+          path: pull-requests
+          status: pending
+      - task: run-tests
+        file: pull-requests/config/pipelines/tasks/run-pr-tests.yml
+        on_success:
+          do:
+          - put: pull-requests
+            params:
+              path: pull-requests
+              status: success
+        on_failure:
+          do:
+          - put: pull-requests
+            params:
+              path: pull-requests
+              status: failure
+
+  - name: master-build
+    serial: true
+    plan:
+      - get: rippled-repository
+        trigger: true
+      - task: tag
+        file: rippled-repository/config/pipelines/tasks/create-repository-tag.yml
+      - put: rippled-image
+        params:
+          build: rippled-repository
+          tag: tag/name
+
+  - name: master-unit
+    serial: true
+    plan:
+      - get: rippled-repository
+        passed: [master-build]
+        trigger: true
+      - get: rippled-image
+        passed: [master-build]
+        trigger: true
+      - task: run-tests
+        file: rippled-repository/config/pipelines/tasks/run-master-tests.yml
+
+  - name: helm-deploy
+    serial: true
+    plan:
+      - get: rippled-repository
+      - task: helm-deploy
+        file: rippled-repository/config/pipelines/tasks/helm-deploy.yml
+        params:
+          GOOGLE_APPLICATION_JSON: ((gcr_password))
+          KUBECONFIG_FILE: ((kubeconfig))
